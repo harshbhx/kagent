@@ -18,4 +18,7 @@ jobs:
         run: go vet ./core/internal/a2agateway/...
       - name: tests
         working-directory: go
-        run: go test -count=1 -race -v ./core/internal/a2agateway/... 2>&1 | tail -80
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 -race -v ./core/internal/a2agateway/... 2>&1 | grep -E "^(--- |FAIL|ok|PASS|\s+--- FAIL|\s+Error|.*WWW)" | head -60

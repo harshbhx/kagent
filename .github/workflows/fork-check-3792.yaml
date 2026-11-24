@@ -1,0 +1,21 @@
+name: fork-check-3792
+on:
+  push:
+    branches: ['ci/3792-*']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+      - name: gofmt
+        working-directory: go
+        run: test -z "$(gofmt -l core/internal/a2agateway)" || (gofmt -d core/internal/a2agateway; exit 1)
+      - name: vet
+        working-directory: go
+        run: go vet ./core/internal/a2agateway/...
+      - name: tests
+        working-directory: go
+        run: go test -count=1 -race -v ./core/internal/a2agateway/... 2>&1 | tail -80

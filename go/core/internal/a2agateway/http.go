@@ -66,7 +66,7 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 			logging.FromContext(r.Context()).ErrorContext(r.Context(), "failed to write agent card", "error", err)
 		}
 	}))
-	return auth.AuthnMiddleware(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return challengeUnauthorized(auth.AuthnMiddleware(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "private, no-store")
 		if _, ok := auth.AuthSessionFrom(r.Context()); !ok {
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -83,8 +83,42 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 		}
 		ctx := auth.ShareContextTo(r.Context(), share)
 		mux.ServeHTTP(w, r.WithContext(ctx))
-	}))
+	})))
 }
+
+// bearerChallenge is the WWW-Authenticate value sent with every 401. RFC 9110
+// section 15.5.2 requires a challenge on 401, and A2A section 7.4 expects
+// servers to tell clients how to authenticate. The credential is an
+// Authorization bearer token, whichever AuthProvider validates it.
+const bearerChallenge = "Bearer"
+
+// challengeUnauthorized adds the Bearer challenge to any 401 the wrapped
+// handler writes. It covers the authentication middleware, the explicit check
+// in NewHTTPHandler, and the card route's mapping of ErrUnauthenticated, so a
+// new 401 path cannot forget the header.
+func challengeUnauthorized(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&challengeWriter{ResponseWriter: w}, r)
+	})
+}
+
+type challengeWriter struct {
+	http.ResponseWriter
+}
+
+func (c *challengeWriter) WriteHeader(status int) {
+	if status == http.StatusUnauthorized {
+		c.Header().Set("WWW-Authenticate", bearerChallenge)
+	}
+	c.ResponseWriter.WriteHeader(status)
+}
+
+// Flush keeps SSE streaming working: handlers type-assert http.Flusher
+// directly, and the embedded interface would not expose it.
+func (c *challengeWriter) Flush() { _ = http.NewResponseController(c.ResponseWriter).Flush() }
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (c *challengeWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
 // httpAgentRoute normalizes the URL into the SDK's routing metadata. It runs
 // after decoding: attaching a tenant before the SDK handles the request would

@@ -374,6 +374,13 @@ func TestHTTPGatewayRejectsInvalidAccess(t *testing.T) {
 			handler.ServeHTTP(response, request)
 			require.Equal(t, test.want, response.Code)
 			require.NotContains(t, response.Body.String(), "private connection details")
+			// RFC 9110 requires a challenge on 401 so clients can learn how to
+			// authenticate; no other status carries one.
+			if test.want == http.StatusUnauthorized {
+				require.Equal(t, "Bearer", response.Header().Get("WWW-Authenticate"))
+			} else {
+				require.Empty(t, response.Header().Values("WWW-Authenticate"))
+			}
 		})
 	}
 }
